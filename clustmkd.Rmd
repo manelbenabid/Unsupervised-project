@@ -1,0 +1,370 @@
+---
+title: "Clustering"
+author: "Manel Roumaissa Benabid"
+date: "2022-05-02"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+```{r}
+setwd("C:/Users/Owner/Desktop/LAU/Fall2022/CSC498H Data Mining")
+
+library(tidyverse)  # data manipulation
+library(cluster)    # clustering algorithms
+library(factoextra) # visualizing clusters
+```
+
+We are going to use the life expectancy data from the regression phase, but we take teh target variable as a normal feature instead of trying to predict it.
+
+loading our data
+
+```{r}
+df1 <- read.csv("life_expectancy.csv", header=TRUE)
+df1 <- subset(df1, select = -c(1,2,3) )
+```
+
+we need to scale our data for clustering
+
+```{r}
+df <- scale(df1)
+```
+
+we compute the distance between the observations and plot it using a heatmap
+
+```{r}
+distance <- get_dist(df)
+fviz_dist(distance, gradient = list(low = "#00AFBB", mid = "white", high = "#FC4E07"))
+```
+applying kmeans on our data with 2 centroids (k =2)
+
+```{r}
+k2 <- kmeans(df, centers = 2, nstart = 25)
+str(k2)
+```
+
+```{r}
+k2
+```
+
+we have two clusters of size 930, 1308
+
+Let's visualize them using factoextra library
+
+```{r}
+fviz_cluster(k2, data = df)
+```
+
+now let's create more and plot them
+
+```{r}
+k3 <- kmeans(df, centers = 3, nstart = 25)
+k4 <- kmeans(df, centers = 4, nstart = 25)
+k5 <- kmeans(df, centers = 5, nstart = 25)
+
+# plots to compare
+p1 <- fviz_cluster(k2, geom = "point", data = df) + ggtitle("k = 2")
+p2 <- fviz_cluster(k3, geom = "point",  data = df) + ggtitle("k = 3")
+p3 <- fviz_cluster(k4, geom = "point",  data = df) + ggtitle("k = 4")
+p4 <- fviz_cluster(k5, geom = "point",  data = df) + ggtitle("k = 5")
+
+library(gridExtra)
+grid.arrange(p1, p2, p3, p4, nrow = 2)
+```
+we notice that our observations are very close to each other with some clusters of data far a bit
+
+
+# Determining Optimal Clusters
+
+## Elbow Method
+
+We check where is the steepest decline in the graph
+```{r}
+set.seed(123)
+
+fviz_nbclust(df, kmeans, method = "wss")
+```
+
+this one says it's at 2 clusters
+
+## Average Silhouette Method
+
+```{r}
+fviz_nbclust(df, kmeans, method = "silhouette")
+```
+This method also suggests 2 clusters as the best to explain the variability in the data
+
+
+## Gap statistic Method
+
+```{r}
+set.seed(123)
+gap_stat <- clusGap(df, FUN = kmeans, nstart = 25,
+                    K.max = 10, B = 50)
+# Print the result
+print(gap_stat, method = "firstmax")
+```
+
+```{r}
+fviz_gap_stat(gap_stat)
+```
+we note that according to the previous methods, the best number of cluster is 2 by majority vote
+
+
+# Hierarchical Clustering
+
+```{r}
+library(dendextend) # for comparing two dendrograms
+```
+
+function "hclust" and "agnes" for agglomerative hierarchical clustering (HC)
+"diana"  for divisive HC
+
+
+
+First we compute the dissimilarity values with "dist" and feed it to "hclust" and specify the agglomeration method to be used (complete, average, single, ward.D)
+
+```{r}
+# Dissimilarity matrix
+d <- dist(df, method = "euclidean")
+
+# Hierarchical clustering using Complete Linkage
+hc1 <- hclust(d, method = "complete" )
+
+# Plot the obtained dendrogram
+plot(hc1, cex = 0.6, hang = -1)
+```
+
+agnes function you can also get the agglomerative coefficient, which measures the amount of clustering structure found (values closer to 1 suggest strong clustering structure)
+```{r}
+# Compute with agnes
+hc2 <- agnes(df, method = "complete")
+
+# Agglomerative coefficient
+hc2$ac
+```
+```{r}
+# methods to assess
+m <- c( "average", "single", "complete", "ward")
+names(m) <- c( "average", "single", "complete", "ward")
+
+# function to compute coefficient
+ac <- function(x) {
+  agnes(df, method = x)$ac
+}
+
+map_dbl(m, ac)
+```
+We see that Ward's method identifies the strongest clustering structure 
+
+Let's visualize the dendrogram
+```{r}
+hc3 <- agnes(df, method = "ward")
+pltree(hc3, cex = 0.6, hang = -1, main = "Dendrogram of agnes") 
+```
+
+
+# Divisive Hierarchical clustering
+
+
+"diana" works similar to agnes but we do not give it any method
+
+```{r}
+# compute divisive hierarchical clustering
+hc4 <- diana(df)
+
+# Divise coefficient; amount of clustering structure found
+hc4$dc
+## [1] 0.8514345
+
+# plot dendrogram
+pltree(hc4, cex = 0.6, hang = -1, main = "Dendrogram of diana")
+```
+
+
+In the dendrograms we obtained earlier, each leaf corresponds to one observation. As we go up, similar observations are grouped together into branches.
+
+The height of the fusion, provided on the vertical axis, indicates the (dis)similarity between two observations. The higher the height of the fusion, the less similar the observations are.
+
+In order to identify sub-groups (i.e. clusters), we can cut the dendrogram with "cutree":
+
+```{r}
+# Ward's method
+hc5 <- hclust(d, method = "ward.D2" )
+
+# Cut tree into 4 groups
+sub_grp <- cutree(hc5, k = 4)
+
+# Number of members in each cluster
+table(sub_grp)
+```
+
+Drawing a 4 cluster dendrogram
+
+```{r}
+plot(hc5, cex = 0.6)
+rect.hclust(hc5, k = 4, border = 2:5)
+```
+
+We can use the "fviz_cluster" from factoextra package to visualize the result in a scatter plot.
+
+```{r}
+fviz_cluster(list(data = df, cluster = sub_grp))
+```
+
+
+
+We can use "cutree" with "agnes" and "diana" 
+```{r}
+# Cut agnes() tree into 4 groups
+hc_a <- agnes(df, method = "ward")
+cutree(as.hclust(hc_a), k = 4)
+
+# Cut diana() tree into 4 groups
+hc_d <- diana(df)
+cutree(as.hclust(hc_d), k = 4)
+```
+
+
+And for the final act, I'm going to be killing myself.
+
+Just kidding, we are going to compare two dendrograms. 
+We will compare hierarchical clustering with complete linkage vc. Ward's method.
+
+To plot the two dendrograms side by side with their labels connected by lines, we use "tanglegram"
+
+```{r}
+# Compute distance matrix
+res.dist <- dist(df, method = "euclidean")
+
+# Compute 2 hierarchical clusterings
+hc1 <- hclust(res.dist, method = "complete")
+hc2 <- hclust(res.dist, method = "ward.D2")
+
+# Create two dendrograms
+dend1 <- as.dendrogram (hc1)
+dend2 <- as.dendrogram (hc2)
+
+tanglegram(dend1, dend2)
+```
+
+Ugly and Beautiful at the same time
+
+
+# Principle Component Analysis
+
+Step1: calculate the covariance matrix of the features
+
+```{r}
+lalaland.cov <- cov(df)
+```
+
+Step2: calculate the eigenvalues and eigenvectors
+
+```{r}
+lalaland.eigen <- eigen(lalaland.cov)
+str(lalaland.eigen)
+```
+Let's take the first two and store them in a matrix, let's call it phi
+
+```{r}
+# Extract the loadings
+(phi <- lalaland.eigen$vectors[,1:2])
+```
+We will take the eigenvectors pointing in the positive direction simply because it makes sense interpretabily and graphically. 
+
+```{r}
+phi <- -phi
+row.names(phi) <- colnames(df1)
+colnames(phi) <- c("PC1", "PC2")
+phi
+```
+
+each PC defines a direction in feature space. Because eigenvectors are orthogonal to every other eigenvector. i.e. they are not correlated with each other.
+
+```{r}
+# Calculate Principal Components scores
+PC1 <- as.matrix(df) %*% phi[,1]
+PC2 <- as.matrix(df) %*% phi[,2]
+```
+
+```{r}
+row.names(df1) <- 1:dim(df1)[1]
+```
+
+
+```{r}
+PC <- data.frame(id = row.names(df1), PC1, PC2)
+head(PC)
+```
+
+
+```{r}
+# Plot Principal Components for each State
+ggplot(PC, aes(PC1, PC2)) + 
+  modelr::geom_ref_line(h = 0) +
+  modelr::geom_ref_line(v = 0) +
+  geom_text(aes(label = id), size = 3) +
+  xlab("First Principal Component") + 
+  ylab("Second Principal Component") + 
+  ggtitle("First Two Principal Components")
+```
+
+
+## Selecting number of PCs
+
+we calculate the the proportion of the variance explained (PVE) by the mth PC
+
+```{r}
+PVE <- lalaland.eigen$values / sum(lalaland.eigen$values)
+round(PVE, 2)
+```
+
+We see thet PC1 explained 35% of the variability, CP2 explains 13%, PC3 11% and so on
+
+Let's plot it, it's better to visualize data, maybe if we visualize them better, we get the opportunity to audit data viz class
+
+```{r}
+# PVE plot
+PVEplot <- qplot(c(1:19), PVE) + 
+  geom_line() + 
+  xlab("Principal Component") + 
+  ylab("PVE") +
+  ggtitle("Scree Plot") +
+  ylim(0, 1)
+
+# Cumulative PVE plot
+cumPVE <- qplot(c(1:19), cumsum(PVE)) + 
+  geom_line() + 
+  xlab("Principal Component") + 
+  ylab(NULL) + 
+  ggtitle("Cumulative Scree Plot") +
+  ylim(0,1)
+
+grid.arrange(PVEplot, cumPVE, ncol = 2)
+```
+
+
+## How many PCs do we use?
+
+We can use the elbow point (using our naked eye) to guess that the best number (we want the minimum) of PCs to choose is 2.
+
+
+
+# Conclusion
+
+In this document we performed kmeans, hierarchical and divisive clustering, and Principle Component Analysis on the life expectancy dataset. In this analysis we took the variable "life expectancy" as a feature instead of a target variable.
+
+Can I audit data viz, please?
+
+
+
+
+
